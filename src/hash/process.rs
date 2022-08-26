@@ -68,15 +68,15 @@ pub fn process_hash(args: HashArgs) -> Result<()> {
         );
         std::process::exit(0);
     } else {
-        return Err(anyhow!("No hidden settings found in config file."));
+        Err(anyhow!("No hidden settings found in config file."))
     }
 }
 
 pub fn hash_and_update(
     mut hidden_settings: HiddenSettings,
-    config_file: &String,
+    config_file: &str,
     config_data: &mut ConfigData,
-    cache_file_path: &String,
+    cache_file_path: &str,
 ) -> Result<String> {
     let mut hasher = Sha256::new();
 

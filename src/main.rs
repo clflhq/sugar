@@ -24,7 +24,9 @@ use sugar_cli::{
     launch::{process_launch, LaunchArgs},
     mint::{process_mint, MintArgs},
     parse::parse_sugar_errors,
+    reveal::{process_reveal, RevealArgs},
     show::{process_show, ShowArgs},
+    sign::{process_sign, SignArgs},
     update::{process_update, UpdateArgs},
     upload::{process_upload, UploadArgs},
     validate::{process_validate, ValidateArgs},
@@ -65,7 +67,7 @@ fn setup_logging(level: Option<EnvFilter>) -> Result<()> {
     Ok(())
 }
 
-#[tokio::main(worker_threads = 4)]
+#[tokio::main]
 async fn main() {
     match run().await {
         Ok(()) => {
@@ -237,14 +239,31 @@ async fn run() -> Result<()> {
             number,
             receiver,
             candy_machine,
-        } => process_mint(MintArgs {
+        } => {
+            process_mint(MintArgs {
+                keypair,
+                rpc_url,
+                cache,
+                number,
+                receiver,
+                candy_machine,
+            })
+            .await?
+        }
+        Commands::Reveal {
             keypair,
             rpc_url,
             cache,
-            number,
-            receiver,
-            candy_machine,
-        })?,
+            config,
+        } => {
+            process_reveal(RevealArgs {
+                keypair,
+                rpc_url,
+                cache,
+                config,
+            })
+            .await?
+        }
         Commands::Show {
             keypair,
             rpc_url,
@@ -273,7 +292,6 @@ async fn run() -> Result<()> {
             new_authority,
             candy_machine,
         })?,
-
         Commands::Upload {
             assets_dir,
             config,
@@ -320,6 +338,22 @@ async fn run() -> Result<()> {
             rpc_url,
             list,
         })?,
+        Commands::Sign {
+            keypair,
+            rpc_url,
+            cache,
+            mint,
+            candy_machine_id,
+        } => {
+            process_sign(SignArgs {
+                keypair,
+                rpc_url,
+                cache,
+                mint,
+                candy_machine_id,
+            })
+            .await?
+        }
     }
 
     Ok(())

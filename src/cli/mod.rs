@@ -146,6 +146,25 @@ pub enum Commands {
         candy_machine: Option<String>,
     },
 
+    /// Reveal the NFTs from a hidden settings candy machine
+    Reveal {
+        /// Path to the keypair file, uses Sol config or defaults to "~/.config/solana/id.json"
+        #[clap(short, long)]
+        keypair: Option<String>,
+
+        /// RPC Url
+        #[clap(short, long)]
+        rpc_url: Option<String>,
+
+        /// Path to the cache file, defaults to "cache.json"
+        #[clap(long, default_value = DEFAULT_CACHE)]
+        cache: String,
+
+        /// Path to the config file
+        #[clap(short, long, default_value = DEFAULT_CONFIG)]
+        config: String,
+    },
+
     /// Show the on-chain config of an existing candy machine
     Show {
         /// Path to the keypair file, uses Sol config or defaults to "~/.config/solana/id.json"
@@ -166,6 +185,29 @@ pub enum Commands {
         /// Display a list of unminted indices
         #[clap(long)]
         unminted: bool,
+    },
+
+    /// Sign one or all NFTs from candy machine
+    Sign {
+        /// Path to the keypair file, uses Sol config or defaults to "~/.config/solana/id.json"
+        #[clap(short, long)]
+        keypair: Option<String>,
+
+        /// RPC Url
+        #[clap(short, long)]
+        rpc_url: Option<String>,
+
+        /// Path to the cache file, defaults to "cache.json"
+        #[clap(long, default_value = DEFAULT_CACHE)]
+        cache: String,
+
+        /// Mint id for single NFT to be signed
+        #[clap(short, long)]
+        mint: Option<String>,
+
+        /// Candy machine id.
+        #[clap(long)]
+        candy_machine_id: Option<String>,
     },
 
     /// Update the candy machine config on-chain
