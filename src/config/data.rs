@@ -59,6 +59,8 @@ pub struct ConfigData {
 
     pub hidden_settings: Option<HiddenSettings>,
 
+    pub freeze_time: Option<i64>,
+
     pub upload_method: UploadMethod,
 
     pub retain_authority: bool,
@@ -76,6 +78,8 @@ pub struct ConfigData {
 
     #[serde(serialize_with = "to_option_string")]
     pub shdw_storage_account: Option<String>,
+
+    pub pinata_config: Option<PinataConfig>,
 }
 
 pub fn to_string<T, S>(value: &T, serializer: S) -> Result<S::Ok, S::Error>
@@ -137,8 +141,8 @@ where
     Ok(Some(pubkey))
 }
 
-fn discount_price_to_lamports(discount_price: Option<f64>) -> Option<u64> {
-    discount_price.map(|price| (price * LAMPORTS_PER_SOL as f64) as u64)
+fn discount_price_to_base_units(discount_price: Option<f64>, decimals: u8) -> Option<u64> {
+    discount_price.map(|price| (price * 10u64.pow(decimals as u32) as f64) as u64)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -258,12 +262,12 @@ impl WhitelistMintSettings {
             discount_price,
         }
     }
-    pub fn to_candy_format(&self) -> CandyWhitelistMintSettings {
+    pub fn to_candy_format(&self, decimals: u8) -> CandyWhitelistMintSettings {
         CandyWhitelistMintSettings {
             mode: self.mode.to_candy_format(),
             mint: self.mint,
             presale: self.presale,
-            discount_price: discount_price_to_lamports(self.discount_price),
+            discount_price: discount_price_to_base_units(self.discount_price, decimals),
         }
     }
 }
@@ -328,6 +332,7 @@ pub enum UploadMethod {
     NftStorage,
     #[serde(rename = "shdw")]
     SHDW,
+    Pinata,
 }
 
 impl Display for UploadMethod {
@@ -366,6 +371,7 @@ impl Creator {
 pub enum Cluster {
     Devnet,
     Mainnet,
+    Localnet,
     Unknown,
 }
 
@@ -376,6 +382,7 @@ impl FromStr for Cluster {
         match s {
             "devnet" => Ok(Cluster::Devnet),
             "mainnet" => Ok(Cluster::Mainnet),
+            "localnet" => Ok(Cluster::Localnet),
             "unknown" => Ok(Cluster::Unknown),
             _ => Err(ConfigError::InvalidCluster(s.to_string()).into()),
         }
@@ -387,6 +394,7 @@ impl ToString for Cluster {
         match self {
             Cluster::Devnet => "devnet".to_string(),
             Cluster::Mainnet => "mainnet".to_string(),
+            Cluster::Localnet => "localnet".to_string(),
             Cluster::Unknown => "unknown".to_string(),
         }
     }
@@ -397,14 +405,41 @@ pub struct AwsConfig {
     pub bucket: String,
     pub profile: String,
     pub directory: String,
+    pub domain: Option<String>,
 }
 
 impl AwsConfig {
-    pub fn new(bucket: String, profile: String, directory: String) -> AwsConfig {
+    pub fn new(
+        bucket: String,
+        profile: String,
+        directory: String,
+        domain: Option<String>,
+    ) -> AwsConfig {
         AwsConfig {
             bucket,
             profile,
             directory,
+            domain,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PinataConfig {
+    pub jwt: String,
+    pub api_gateway: String,
+    pub content_gateway: String,
+    pub parallel_limit: Option<u16>,
+}
+
+impl PinataConfig {
+    pub fn new(jwt: String, api_gateway: String, content_gateway: String) -> PinataConfig {
+        PinataConfig {
+            jwt,
+            api_gateway,
+            content_gateway,
+            parallel_limit: None,
         }
     }
 }

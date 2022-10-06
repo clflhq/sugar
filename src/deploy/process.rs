@@ -14,6 +14,7 @@ use anchor_client::solana_sdk::{
 };
 use anyhow::Result;
 use console::style;
+use mpl_candy_machine::{constants::FREEZE_FEATURE_INDEX, utils::is_feature_active};
 use spl_associated_token_account::get_associated_token_address;
 
 use crate::{
@@ -25,6 +26,7 @@ use crate::{
         create_and_set_collection, create_candy_machine_data, errors::*, generate_config_lines,
         initialize_candy_machine, upload_config_lines,
     },
+    freeze::enable_freeze,
     hash::hash_and_update,
     setup::{setup_client, sugar_setup},
     update::{process_update, UpdateArgs},
@@ -76,6 +78,7 @@ pub async fn process_deploy(args: DeployArgs) -> Result<()> {
 
     let sugar_config = Arc::new(sugar_setup(args.keypair.clone(), args.rpc_url.clone())?);
     let client = setup_client(&sugar_config)?;
+    let program = client.program(CANDY_MACHINE_ID);
     let mut config_data = get_config_data(&args.config)?;
 
     let candy_machine_address = &cache.program.candy_machine;
@@ -86,6 +89,7 @@ pub async fn process_deploy(args: DeployArgs) -> Result<()> {
     let hidden = config_data.hidden_settings.is_some();
     let collection_in_cache = cache.items.get("-1").is_some();
     let mut item_redeemed = false;
+    let mut freeze_deployed = false;
 
     let cache_items_sans_collection = (cache.items.len() - collection_in_cache as usize) as u64;
 
@@ -101,78 +105,16 @@ pub async fn process_deploy(args: DeployArgs) -> Result<()> {
         check_seller_fee_basis_points(config_data.seller_fee_basis_points)?;
     }
 
-    let total_steps = 2 + (collection_in_cache as u8) - (hidden as u8);
+    let total_steps = 2 + (collection_in_cache as u8) + (config_data.freeze_time.is_some() as u8)
+        - (hidden as u8);
 
-    let candy_pubkey = if candy_machine_address.is_empty() {
+    let mut candy_pubkey = Pubkey::default();
+    if candy_machine_address.is_empty() {
         println!(
             "{} {}Creating candy machine",
             style(format!("[1/{}]", total_steps)).bold().dim(),
             CANDY_EMOJI
         );
-        info!("Candy machine address is empty, creating new candy machine...");
-
-        let spinner = spinner_with_style();
-        spinner.set_message("Creating candy machine...");
-
-        let candy_keypair = Keypair::new();
-        let candy_pubkey = candy_keypair.pubkey();
-
-        let uuid = DEFAULT_UUID.to_string();
-        let candy_data = create_candy_machine_data(&client, &config_data, uuid)?;
-        let program = client.program(CANDY_MACHINE_ID);
-
-        let treasury_wallet = match config_data.spl_token {
-            Some(spl_token) => {
-                let spl_token_account_figured = if config_data.spl_token_account.is_some() {
-                    config_data.spl_token_account
-                } else {
-                    Some(get_associated_token_address(&program.payer(), &spl_token))
-                };
-
-                if config_data.sol_treasury_account.is_some() {
-                    return Err(anyhow!("If spl-token-account or spl-token is set then sol-treasury-account cannot be set"));
-                }
-
-                // validates the mint address of the token accepted as payment
-                check_spl_token(&program, &spl_token.to_string())?;
-
-                if let Some(token_account) = spl_token_account_figured {
-                    // validates the spl token wallet to receive proceedings from SPL token payments
-                    check_spl_token_account(&program, &token_account.to_string())?;
-                    token_account
-                } else {
-                    return Err(anyhow!(
-                        "If spl-token is set, spl-token-account must also be set"
-                    ));
-                }
-            }
-            None => match config_data.sol_treasury_account {
-                Some(sol_treasury_account) => sol_treasury_account,
-                None => sugar_config.keypair.pubkey(),
-            },
-        };
-
-        // all good, let's create the candy machine
-
-        let sig = initialize_candy_machine(
-            &config_data,
-            &candy_keypair,
-            candy_data,
-            treasury_wallet,
-            program,
-        )?;
-        info!("Candy machine initialized with sig: {}", sig);
-        info!(
-            "Candy machine created with address: {}",
-            &candy_pubkey.to_string()
-        );
-
-        cache.program = CacheProgram::new_from_cm(&candy_pubkey);
-        cache.sync_file()?;
-
-        spinner.finish_and_clear();
-
-        candy_pubkey
     } else {
         println!(
             "{} {}Loading candy machine",
@@ -180,7 +122,7 @@ pub async fn process_deploy(args: DeployArgs) -> Result<()> {
             CANDY_EMOJI
         );
 
-        let candy_pubkey = match Pubkey::from_str(candy_machine_address) {
+        candy_pubkey = match Pubkey::from_str(candy_machine_address) {
             Ok(pubkey) => pubkey,
             Err(_err) => {
                 error!(
@@ -199,14 +141,83 @@ pub async fn process_deploy(args: DeployArgs) -> Result<()> {
                 if candy_state.items_redeemed > 0 {
                     item_redeemed = true;
                 }
+                if is_feature_active(&candy_state.data.uuid, FREEZE_FEATURE_INDEX) {
+                    freeze_deployed = true;
+                }
             }
             Err(_) => {
-                return Err(anyhow!("Candy machine from cache does't exist on chain!"));
+                println!(
+                    "{} Candy machine {} not found on-chain",
+                    WARNING_EMOJI, candy_machine_address
+                );
+                println!(
+                    "{} This can happen if the deploy transaction fails or times out",
+                    WARNING_EMOJI
+                );
+                println!("{} Creating candy machine", CANDY_EMOJI);
+
+                candy_pubkey = Pubkey::default();
             }
         }
+    }
 
-        candy_pubkey
-    };
+    if candy_pubkey == Pubkey::default() {
+        let spinner = spinner_with_style();
+        spinner.set_message("Creating candy machine...");
+
+        let candy_keypair = Keypair::new();
+        candy_pubkey = candy_keypair.pubkey();
+
+        let uuid = DEFAULT_UUID.to_string();
+        let candy_data = create_candy_machine_data(&client, &config_data, uuid)?;
+        let program = client.program(CANDY_MACHINE_ID);
+
+        let treasury_wallet = match config_data.spl_token {
+            Some(spl_token) => {
+                if config_data.sol_treasury_account.is_some() {
+                    return Err(anyhow!("If spl-token-account or spl-token is set then sol-treasury-account cannot be set"));
+                }
+
+                let token_account = config_data
+                    .spl_token_account
+                    .unwrap_or_else(|| get_associated_token_address(&program.payer(), &spl_token));
+
+                // validates the mint address of the token accepted as payment
+                check_spl_token(&program, &spl_token.to_string())?;
+
+                // validates the spl token wallet to receive proceedings from SPL token payments
+                check_spl_token_account(&program, &token_account.to_string())?;
+                token_account
+            }
+            None => match config_data.sol_treasury_account {
+                Some(sol_treasury_account) => sol_treasury_account,
+                None => sugar_config.keypair.pubkey(),
+            },
+        };
+
+        // save the candy machine pubkey to the cache _before_ attempting to deploy
+        // in case the transaction doesn't confirm in time the next run should pickup the pubkey
+        // and check if the deploy succeeded
+        cache.program = CacheProgram::new_from_cm(&candy_pubkey);
+        cache.sync_file()?;
+
+        // all good, let's create the candy machine
+
+        let sig = initialize_candy_machine(
+            &config_data,
+            &candy_keypair,
+            candy_data,
+            treasury_wallet,
+            program,
+        )?;
+        info!("Candy machine initialized with sig: {}", sig);
+        info!(
+            "Candy machine created with address: {}",
+            &candy_pubkey.to_string()
+        );
+
+        spinner.finish_and_clear();
+    }
 
     println!("{} {}", style("Candy machine ID:").bold(), candy_pubkey);
 
@@ -237,9 +248,34 @@ pub async fn process_deploy(args: DeployArgs) -> Result<()> {
         }
     }
 
+    // Freeze settings check
+    if let Some(freeze_time) = config_data.freeze_time {
+        let step_num = 2 + (collection_in_cache as u8);
+        println!(
+            "\n{} {}Setting up candy machine with Freeze feature",
+            style(format!("[{}/{}]", step_num, total_steps))
+                .bold()
+                .dim(),
+            ICE_CUBE_EMOJI
+        );
+
+        if item_redeemed {
+            println!("\nAn item has already been minted and thus the freeze feature cannot be set. Skipping...");
+        } else if freeze_deployed {
+            println!("Freeze feature already deployed, skipping...");
+        } else {
+            let pb = spinner_with_style();
+            pb.set_message("Sending set freeze command...");
+            let sig = enable_freeze(&program, &config_data, &candy_pubkey, freeze_time)?;
+
+            pb.finish_and_clear();
+            println!("{} {}", style("Tx signature:").bold(), sig);
+        }
+    }
+
     // Hidden Settings check needs to be the last action in this command, so we can update the hash with the final cache state.
     if !hidden {
-        let step_num = 2 + (collection_in_cache as u8);
+        let step_num = 2 + (collection_in_cache as u8) + (config_data.freeze_time.is_some() as u8);
         println!(
             "\n{} {}Writing config lines",
             style(format!("[{}/{}]", step_num, total_steps))
