@@ -2,10 +2,8 @@ use std::{
     ffi::OsStr,
     fs::{self, DirEntry, File, OpenOptions},
     io::{BufReader, Read},
-    sync::Arc,
 };
 
-use bundlr_sdk::{tags::Tag, Bundlr, Ed25519Signer as SolanaSigner};
 use data_encoding::HEXLOWER;
 use glob::glob;
 use regex::{Regex, RegexBuilder};
@@ -14,14 +12,6 @@ use serde::Serialize;
 use serde_json;
 
 use crate::{common::*, validate::format::Metadata};
-
-pub struct UploadDataArgs<'a> {
-    pub bundlr_client: Arc<Bundlr<SolanaSigner>>,
-    pub assets_dir: &'a Path,
-    pub extension_glob: &'a str,
-    pub tags: Vec<Tag>,
-    pub data_type: DataType,
-}
 
 #[derive(Debug, Clone)]
 pub enum DataType {
@@ -51,7 +41,7 @@ impl AssetPair {
             metadata_link: String::new(),
             on_chain: false,
             animation_hash: self.animation_hash,
-            animation_link: self.animation,
+            animation_link: None,
         }
     }
 }
@@ -142,7 +132,7 @@ pub fn get_asset_pairs(assets_dir: &str) -> Result<HashMap<isize, AssetPair>> {
     let paths_ref = &paths;
 
     let animation_exists_regex =
-        Regex::new("^(.+)\\.((mp4)|(mov)|(webm))$").expect("Failed to create regex.");
+        Regex::new("^(.+)\\.((mp3)|(mp4)|(mov)|(webm)|(glb))$").expect("Failed to create regex.");
 
     // since there doesn't have to be video for each image/json pair, need to get rid of
     // invalid file names before entering metadata filename loop
@@ -194,7 +184,7 @@ pub fn get_asset_pairs(assets_dir: &str) -> Result<HashMap<isize, AssetPair>> {
             .filter(|p| img_regex.is_match(p))
             .collect::<Vec<String>>();
 
-        let img_filename = if img_filenames.is_empty() {
+        let img_filename = if img_filenames.len() != 1 {
             let error = if is_collection_index {
                 anyhow!("Couldn't find the collection image filename.")
             } else {
@@ -212,7 +202,7 @@ pub fn get_asset_pairs(assets_dir: &str) -> Result<HashMap<isize, AssetPair>> {
         // need a similar check for animation as above, this one checking if there is animation
         // on specific index
 
-        let animation_pattern = format!("^{}\\.((mp4)|(mov)|(webm))$", i);
+        let animation_pattern = format!("^{}\\.((mp3)|(mp4)|(mov)|(webm)|(glb))$", i);
         let animation_regex = RegexBuilder::new(&animation_pattern)
             .case_insensitive(true)
             .build()
@@ -242,7 +232,7 @@ pub fn get_asset_pairs(assets_dir: &str) -> Result<HashMap<isize, AssetPair>> {
             .expect("Failed to convert image path from unicode.")
             .to_string();
 
-        let animation_filename = if !animation_filenames.is_empty() {
+        let animation_filename = if animation_filenames.len() == 1 {
             let animation_filepath = Path::new(assets_dir)
                 .join(&animation_filenames[0])
                 .to_str()
@@ -355,7 +345,11 @@ pub fn get_updated_metadata(
     }
 
     metadata.image = image_link.to_string();
-    metadata.animation_url = animation_link.clone();
+
+    if animation_link.is_some() {
+        // only updates the link if we have a new value
+        metadata.animation_url = animation_link.clone();
+    }
 
     Ok(serde_json::to_string(&metadata).unwrap())
 }
