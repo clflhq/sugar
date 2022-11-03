@@ -16,7 +16,9 @@ use mpl_candy_machine::{
 };
 use mpl_token_metadata::pda::find_collection_authority_account;
 use solana_client::rpc_response::Response;
-use spl_associated_token_account::{create_associated_token_account, get_associated_token_address};
+use spl_associated_token_account::{
+    get_associated_token_address, instruction::create_associated_token_account,
+};
 use spl_token::{
     instruction::{initialize_mint, mint_to},
     state::Account,
@@ -124,7 +126,10 @@ pub async fn process_mint(args: MintArgs) -> Result<()> {
         )
         .await
         {
-            Ok(signature) => format!("{} {}", style("Signature:").bold(), signature),
+            Ok(signature) => {
+                println!("Signature: {}", signature);
+                format!("{}", style("Mint success").bold())
+            }
             Err(err) => {
                 pb.abandon_with_message(format!("{}", style("Mint failed ").red().bold()));
                 error!("{:?}", err);

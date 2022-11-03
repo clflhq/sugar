@@ -29,7 +29,7 @@ use crate::{
     freeze::enable_freeze,
     hash::hash_and_update,
     setup::{setup_client, sugar_setup},
-    update::{process_update, UpdateArgs},
+    update::{check_config_to_prevent_bots, process_update, UpdateArgs},
     utils::*,
     validate::parser::{check_name, check_seller_fee_basis_points, check_symbol, check_url},
 };
@@ -80,6 +80,10 @@ pub async fn process_deploy(args: DeployArgs) -> Result<()> {
     let client = setup_client(&sugar_config)?;
     let program = client.program(CANDY_MACHINE_ID);
     let mut config_data = get_config_data(&args.config)?;
+    if let Err(e) = check_config_to_prevent_bots(&config_data) {
+        println!("{}", e);
+        return Ok(());
+    };
 
     let candy_machine_address = &cache.program.candy_machine;
 
@@ -115,6 +119,14 @@ pub async fn process_deploy(args: DeployArgs) -> Result<()> {
             style(format!("[1/{}]", total_steps)).bold().dim(),
             CANDY_EMOJI
         );
+
+        // Sanity check that all items in the cache are set to 'false', in case
+        // a user didn't clear them after a previous deploy.
+        cache
+            .items
+            .iter_mut()
+            .for_each(|(_, item)| item.on_chain = false);
+        cache.sync_file()?;
     } else {
         println!(
             "{} {}Loading candy machine",
@@ -155,6 +167,14 @@ pub async fn process_deploy(args: DeployArgs) -> Result<()> {
                     WARNING_EMOJI
                 );
                 println!("{} Creating candy machine", CANDY_EMOJI);
+
+                // We set cache items onChain values to false, in case they are set to true
+                // from a previous run. This ensures the config items are actually uploaded.
+                cache
+                    .items
+                    .iter_mut()
+                    .for_each(|(_, item)| item.on_chain = false);
+                cache.sync_file()?;
 
                 candy_pubkey = Pubkey::default();
             }
