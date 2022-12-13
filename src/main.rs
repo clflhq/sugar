@@ -12,6 +12,7 @@ use anyhow::{anyhow, Result};
 use clap::Parser;
 use console::style;
 use sugar_cli::{
+    airdrop::{process_airdrop, AirdropArgs},
     bundlr::{process_bundlr, BundlrArgs},
     cli::{Cli, CollectionSubcommands, Commands, FreezeSubcommands},
     collections::{
@@ -279,6 +280,22 @@ async fn run() -> Result<()> {
             })
             .await?
         }
+        Commands::Airdrop {
+            keypair,
+            rpc_url,
+            cache,
+            candy_machine,
+            airdrop_list,
+        } => {
+            process_airdrop(AirdropArgs {
+                keypair,
+                rpc_url,
+                cache,
+                candy_machine,
+                airdrop_list,
+            })
+            .await?
+        }
         Commands::Reveal {
             keypair,
             rpc_url,
@@ -330,11 +347,13 @@ async fn run() -> Result<()> {
             keypair,
             rpc_url,
             cache,
+            config,
             candy_machine,
         } => process_unfreeze_funds(UnlockFundsArgs {
             keypair,
             rpc_url,
             cache,
+            config,
             candy_machine,
         })?,
         Commands::Update {

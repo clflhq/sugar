@@ -1,6 +1,8 @@
 use clap::{Parser, Subcommand};
 
-use crate::constants::{DEFAULT_ASSETS, DEFAULT_CACHE, DEFAULT_CONFIG};
+use crate::constants::{
+    DEFAULT_AIRDROP_LIST, DEFAULT_AIRDROP_LIST_HELP, DEFAULT_ASSETS, DEFAULT_CACHE, DEFAULT_CONFIG,
+};
 
 #[derive(Parser)]
 #[clap(author, version, about)]
@@ -151,6 +153,28 @@ pub enum Commands {
         #[clap(long)]
         candy_machine: Option<String>,
     },
+    /// Airdrop NFTs from candy machine
+    Airdrop {
+        /// Path to the keypair file, uses Sol config or defaults to "~/.config/solana/id.json"
+        #[clap(short, long)]
+        keypair: Option<String>,
+
+        /// RPC Url
+        #[clap(short, long)]
+        rpc_url: Option<String>,
+
+        /// Path to the cache file, defaults to "cache.json"
+        #[clap(long, default_value = DEFAULT_CACHE)]
+        cache: String,
+
+        /// Address of candy machine to mint from.
+        #[clap(long)]
+        candy_machine: Option<String>,
+
+        /// List of airdrop targets.
+        #[clap(long, default_value = DEFAULT_AIRDROP_LIST, help = DEFAULT_AIRDROP_LIST_HELP)]
+        airdrop_list: String,
+    },
 
     /// Reveal the NFTs from a hidden settings candy machine
     Reveal {
@@ -259,6 +283,10 @@ pub enum Commands {
         /// Path to the cache file, defaults to "cache.json"
         #[clap(long, default_value = DEFAULT_CACHE)]
         cache: String,
+
+        /// Path to the config file
+        #[clap(short, long, default_value = DEFAULT_CONFIG)]
+        config: String,
 
         /// Address of candy machine to update.
         candy_machine: Option<String>,
